@@ -12,6 +12,8 @@ env.read_env()
 
 #--------------Constants------------------
 BOT_TOKEN = env.str('BOT_TOKEN')
+link_mode = 'delete'
+warns = {}
 
 bot = TeleBot(BOT_TOKEN)
 SUPER_ADMIN_ID = env.str('ADMIN_ID')
@@ -36,6 +38,8 @@ def show_admin_panel(message):
     bot.send_message(message.chat.id, "🎛️ *پنل مدیریت ادمین*", reply_markup=markup, parse_mode='Markdown')
 
 
+
+# ------------------------------------- White list and Bot settings in panel ---------------------------------
 def show_whitelist_menu(call):
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
@@ -59,6 +63,64 @@ def show_settings_menu(call):
     )
     bot.edit_message_text("⚙️ تنظیمات ربات", call.message.chat.id, call.message.message_id,
                         reply_markup=markup)
+
+
+# ------------------------------------- Callback handle ---------------------------------
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+    if not is_super_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ شما اجازه دسترسی به این بخش را ندارید!")
+        return
+    
+    if call.data == "admin_panel":
+        show_admin_panel(call.message)
+    elif call.data == "whitelist_menu":
+        show_whitelist_menu(call)
+    elif call.data == "settings_menu":
+        show_settings_menu(call)
+    elif call.data == "status":
+        status_text = (
+            f"📊 وضعیت ربات:\n"
+            f"• حالت برخورد با لینک: {link_mode}\n"
+            f"• تعداد کاربران لیست سفید: {len(whitelist)}\n"
+            f"• کاربران با هشدار: {len(warns)}"
+        )
+        bot.send_message(call.message.chat.id, status_text)
+    elif call.data.startswith("mode_"):
+        global link_mode
+        link_mode = call.data.split("_")[1]
+        bot.answer_callback_query(call.id, f"✅ حالت لینک‌ها به '{link_mode}' تغییر کرد!")
+        show_settings_menu(call)
+    elif call.data == "add_whitelist":
+        msg = bot.send_message(call.message.chat.id, "➕ لطفاً *user_id* کاربر را برای اضافه کردن وارد کنید:", parse_mode='Markdown', reply_markup=telebot.types.ForceReply())
+        bot.register_next_step_handler(msg, add_whitelist)
+    elif call.data == "remove_whitelist":
+        msg = bot.send_message(call.message.chat.id, "➖ لطفاً *user_id* کاربر را برای حذف وارد کنید:", parse_mode='Markdown', reply_markup=telebot.types.ForceReply())
+        bot.register_next_step_handler(msg, remove_whitelist)
+
+
+def add_whitelist(message):
+    try:
+        user_id = int(message.text.strip())
+        if user_id not in whitelist:
+            whitelist.append(user_id)
+            bot.reply_to(message, f"✅ کاربر {user_id} به لیست سفید اضافه شد.")
+        else:
+            bot.reply_to(message, "کاربر از قبل در لیست سفید است.")
+    except:
+        bot.reply_to(message, "❌ مقدار وارد شده معتبر نیست. لطفاً فقط user_id عددی ارسال کنید.")
+
+def remove_whitelist(message):
+    try:
+        user_id = int(message.text.strip())
+        if user_id in whitelist:
+            whitelist.remove(user_id)
+            bot.reply_to(message, f"✅ کاربر {user_id} از لیست سفید حذف شد.")
+        else:
+            bot.reply_to(message, "کاربر در لیست سفید نیست.")
+    except:
+        bot.reply_to(message, "❌ مقدار وارد شده معتبر نیست. لطفاً فقط user_id عددی ارسال کنید.")
+
 # ------------------------------------- Start and Help handle ---------------------------------
 @bot.message_handler(commands=['start'])
 def start_handle(message):
@@ -107,7 +169,12 @@ def check_link(message):
         if message.from_user.id == admin_user_id or message.from_user.id in whitelist:
             return
         if message.text and LINK_REG.search(message.text):
-            bot.delete_message(message.chat.id, message.message_id)
-            bot.reply_to(message, f"⚠️ {message.from_user.first_name}، ارسال لینک در گروه ممنوع است!")
+            if link_mode == "delete":
+                bot.delete_message(message.chat.id, message.message_id)
+            elif link_mode == "warn":
+                warns[message.from_user.id] = warns.get(message.from_user.id, 0) + 1
+                bot.reply_to(message, f"⚠️ {message.from_user.first_name}، ارسال لینک ممنوع است! ({warns[message.from_user.id]} هشدار)")
+            elif link_mode == "ban":
+                bot.kick_chat_member(message.chat.id, message.from_user.id)
     except Exception as e:
         print(f'Errors:{e}')
