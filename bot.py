@@ -2,15 +2,20 @@ from telebot import TeleBot
 
 from environs import Env
 
+import re
+
 env = Env()
 env.read_env()
 
+
+#--------------Constants------------------
 BOT_TOKEN = env.str('BOT_TOKEN')
 
 bot = TeleBot(BOT_TOKEN)
 ADMIN_ID = env.str('ADMIN_ID')
 
-
+whitelist = []
+LINK_REG = re.compile(r"(?i)(https?://\S+|www\.\S+|t\.me/\S+|telegram\.me/\S+)")
 # ------------------------------------- Start and Help handle ---------------------------------
 @bot.message_handler(commands=['start'])
 def start_handle(message):
@@ -45,3 +50,17 @@ def help_handle(message):
         "با استفاده از من، گروه و کانال شما همیشه امن و مرتب باقی می‌ماند! 🛡️"
     )
     bot.reply_to(message, help_text, parse_mode='Markdown')
+
+
+# ------------------------------------- Checking text ---------------------------------
+@bot.message_handler(func= lambda message:True)
+def check_link(message):
+    admin_user_id = ADMIN_ID
+    try:
+        if message.from_user.id == admin_user_id or message.from_user.id in whitelist:
+            return
+        if message.text and LINK_REG.search(message.text):
+            bot.delete_message(message.chat.id, message.message_id)
+            bot.reply_to(message, f"⚠️ {message.from_user.first_name}، ارسال لینک در گروه ممنوع است!")
+    except Exception as e:
+        print(f'Errors:{e}')
