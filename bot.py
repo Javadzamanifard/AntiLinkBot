@@ -19,6 +19,8 @@ SUPER_ADMIN_ID = env.str('ADMIN_ID')
 whitelist = []
 LINK_REG = re.compile(r"(?i)(https?://\S+|www\.\S+|t\.me/\S+|telegram\.me/\S+)")
 
+
+# ------------------------------------- Admin panel ---------------------------------
 def is_super_admin(user_id):
     return user_id == SUPER_ADMIN_ID
 
@@ -33,6 +35,30 @@ def show_admin_panel(message):
     )
     bot.send_message(message.chat.id, "🎛️ *پنل مدیریت ادمین*", reply_markup=markup, parse_mode='Markdown')
 
+
+def show_whitelist_menu(call):
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 1
+    markup.add(
+        InlineKeyboardButton("➕ اضافه کردن کاربر", callback_data="add_whitelist"),
+        InlineKeyboardButton("➖ حذف کاربر", callback_data="remove_whitelist"),
+        InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")
+    )
+    bot.edit_message_text("📝 مدیریت لیست سفید", call.message.chat.id, call.message.message_id,
+                        reply_markup=markup)
+
+
+def show_settings_menu(call):
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 1
+    markup.add(
+        InlineKeyboardButton("🗑 حذف پیام‌ها", callback_data="mode_delete"),
+        InlineKeyboardButton("⚠️ هشدار", callback_data="mode_warn"),
+        InlineKeyboardButton("⛔ بن", callback_data="mode_ban"),
+        InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")
+    )
+    bot.edit_message_text("⚙️ تنظیمات ربات", call.message.chat.id, call.message.message_id,
+                        reply_markup=markup)
 # ------------------------------------- Start and Help handle ---------------------------------
 @bot.message_handler(commands=['start'])
 def start_handle(message):
