@@ -1,8 +1,12 @@
-from telebot import TeleBot
+from telebot import TeleBot, types
 
 from environs import Env
 
 import re
+
+import json
+import os
+
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -14,6 +18,8 @@ env.read_env()
 BOT_TOKEN = env.str('BOT_TOKEN')
 link_mode = 'delete'
 warns = {}
+DATA_FILE = "data.json"
+MAX_WARN = 3
 
 bot = TeleBot(BOT_TOKEN)
 SUPER_ADMIN_ID = env.str('ADMIN_ID')
@@ -21,10 +27,28 @@ SUPER_ADMIN_ID = env.str('ADMIN_ID')
 whitelist = []
 LINK_REG = re.compile(r"(?i)(https?://\S+|www\.\S+|t\.me/\S+|telegram\.me/\S+)")
 
+def save_data():
+    data = {"whitelist": whitelist, "warns": warns, "link_mode": link_mode}
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+
+def load_data():
+    global whitelist, warns, link_mode
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            whitelist = data.get("whitelist", [])
+            warns = data.get("warns", {})
+            link_mode = data.get("link_mode", "delete")
+    except FileNotFoundError:
+        save_data()
+
+load_data()
 
 # ------------------------------------- Admin panel ---------------------------------
 def is_super_admin(user_id):
-    return user_id == SUPER_ADMIN_ID
+    return user_id == int(SUPER_ADMIN_ID)
 
 
 def show_admin_panel(message):
@@ -68,6 +92,7 @@ def show_settings_menu(call):
 # ------------------------------------- Callback handle ---------------------------------
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
+    global link_mode
     if not is_super_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ شما اجازه دسترسی به این بخش را ندارید!")
         return
@@ -87,15 +112,14 @@ def callback_handler(call):
         )
         bot.send_message(call.message.chat.id, status_text)
     elif call.data.startswith("mode_"):
-        global link_mode
         link_mode = call.data.split("_")[1]
         bot.answer_callback_query(call.id, f"✅ حالت لینک‌ها به '{link_mode}' تغییر کرد!")
         show_settings_menu(call)
     elif call.data == "add_whitelist":
-        msg = bot.send_message(call.message.chat.id, "➕ لطفاً *user_id* کاربر را برای اضافه کردن وارد کنید:", parse_mode='Markdown', reply_markup=telebot.types.ForceReply())
+        msg = bot.send_message(call.message.chat.id, "➕ لطفاً *user_id* کاربر را برای اضافه کردن وارد کنید:", parse_mode='Markdown', reply_markup=types.ForceReply())
         bot.register_next_step_handler(msg, add_whitelist)
     elif call.data == "remove_whitelist":
-        msg = bot.send_message(call.message.chat.id, "➖ لطفاً *user_id* کاربر را برای حذف وارد کنید:", parse_mode='Markdown', reply_markup=telebot.types.ForceReply())
+        msg = bot.send_message(call.message.chat.id, "➖ لطفاً *user_id* کاربر را برای حذف وارد کنید:", parse_mode='Markdown', reply_markup=types.ForceReply())
         bot.register_next_step_handler(msg, remove_whitelist)
 
 
@@ -104,6 +128,7 @@ def add_whitelist(message):
         user_id = int(message.text.strip())
         if user_id not in whitelist:
             whitelist.append(user_id)
+            save_data()
             bot.reply_to(message, f"✅ کاربر {user_id} به لیست سفید اضافه شد.")
         else:
             bot.reply_to(message, "کاربر از قبل در لیست سفید است.")
@@ -115,6 +140,7 @@ def remove_whitelist(message):
         user_id = int(message.text.strip())
         if user_id in whitelist:
             whitelist.remove(user_id)
+            save_data()
             bot.reply_to(message, f"✅ کاربر {user_id} از لیست سفید حذف شد.")
         else:
             bot.reply_to(message, "کاربر در لیست سفید نیست.")
@@ -165,6 +191,9 @@ def help_handle(message):
 @bot.message_handler(func= lambda message:True)
 def check_link(message):
     admin_user_id = SUPER_ADMIN_ID
+    
+    if message.chat.type not in ["group", "supergroup"]:
+        return
     try:
         if message.from_user.id == admin_user_id or message.from_user.id in whitelist:
             return
@@ -174,7 +203,17 @@ def check_link(message):
             elif link_mode == "warn":
                 warns[message.from_user.id] = warns.get(message.from_user.id, 0) + 1
                 bot.reply_to(message, f"⚠️ {message.from_user.first_name}، ارسال لینک ممنوع است! ({warns[message.from_user.id]} هشدار)")
+                save_data()
+                if warns[message.from_user.id] >= MAX_WARN:
+                    bot.kick_chat_member(message.chat.id, message.from_user.id)
+                    bot.send_message(message.chat.id, f"⛔ {message.from_user.first_name} به دلیل دریافت {MAX_WARN} هشدار، از گروه اخراج شد!")
+                    warns.pop(message.from_user.id)
+                    save_data()
             elif link_mode == "ban":
                 bot.kick_chat_member(message.chat.id, message.from_user.id)
     except Exception as e:
-        print(f'Errors:{e}')
+        print(f"Error: {e}")
+
+
+print("ربات در حال اجراست...")
+bot.infinity_polling()
